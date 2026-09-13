@@ -132,6 +132,19 @@ public final class SchemaInitializer {
             )
             """;
 
+    // At most one row is ever inserted here — see FinancialProfileRepository for how that
+    // singleton contract is enforced at the repository layer. No CHECK/unique-index-based
+    // enforcement is added at the schema level; the repository already guarantees it by
+    // construction, and adding a second enforcement mechanism for the same invariant is not
+    // needed for this milestone.
+    private static final String CREATE_FINANCIAL_PROFILE = """
+            CREATE TABLE IF NOT EXISTS financial_profile (
+                id INTEGER PRIMARY KEY,
+                monthly_income TEXT NOT NULL,
+                monthly_expenses TEXT NOT NULL
+            )
+            """;
+
     private SchemaInitializer() {
         // stateless utility class; not instantiable
     }
@@ -153,6 +166,7 @@ public final class SchemaInitializer {
             statement.execute(CREATE_LOANS);
             statement.execute(CREATE_GOALS);
             statement.execute(CREATE_BUDGETS);
+            statement.execute(CREATE_FINANCIAL_PROFILE);
         } catch (SQLException e) {
             throw new RepositoryException("Failed to initialize database schema", e);
         }
