@@ -75,9 +75,15 @@ class FinancialSnapshotTest {
     }
 
     @Test
-    void rejectsNegativeCash() {
-        assertThrows(IllegalArgumentException.class, () -> new FinancialSnapshot(
-                AS_OF, new BigDecimal("-1"), BigDecimal.ZERO, BigDecimal.ZERO, List.of(), List.of(), List.of()));
+    void allowsNegativeCashAndItRoundTripsCorrectly() {
+        // Cash is a consolidated aggregate across every account (see SnapshotBuilder); an account
+        // whose recorded expenses exceed its opening balance can legitimately drive that aggregate
+        // negative, so this is not rejected — see the class-level note on preserving, not clamping,
+        // that value.
+        FinancialSnapshot snapshot = new FinancialSnapshot(
+                AS_OF, new BigDecimal("-500.00"), BigDecimal.ZERO, BigDecimal.ZERO, List.of(), List.of(), List.of());
+
+        assertEquals(0, new BigDecimal("-500.00").compareTo(snapshot.getCash()));
     }
 
     @Test

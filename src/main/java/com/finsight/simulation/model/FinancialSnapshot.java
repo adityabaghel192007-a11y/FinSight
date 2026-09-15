@@ -17,6 +17,13 @@ import java.util.Objects;
  * <p>This is a pure data holder — it contains no simulation logic. Computing how these values
  * evolve month to month is the {@code SimulationEngine}'s job, not this class's.
  *
+ * <p>{@link #getCash()} may be negative: it is a consolidated aggregate across every account (see
+ * {@code SnapshotBuilder}), and an account whose recorded expenses exceed its opening balance can
+ * legitimately drive that aggregate negative. This class preserves whatever value it is given
+ * rather than clamping it to zero — {@code monthlyIncome} and {@code monthlyExpenses} remain
+ * non-negative, since those come from an explicit user-supplied baseline rather than an
+ * account-balance calculation.
+ *
  * <p>Instances are immutable and validated eagerly in the constructor. {@link #getInvestments()},
  * {@link #getLoans()}, and {@link #getGoals()} each return an unmodifiable view backed by a
  * defensive copy taken at construction time ({@link List#copyOf}), so the caller's original
@@ -48,9 +55,6 @@ public final class FinancialSnapshot {
             List<Goal> goals) {
         Objects.requireNonNull(asOfDate, "asOfDate must not be null");
         Objects.requireNonNull(cash, "cash must not be null");
-        if (cash.signum() < 0) {
-            throw new IllegalArgumentException("cash must be >= 0");
-        }
         Objects.requireNonNull(monthlyIncome, "monthlyIncome must not be null");
         if (monthlyIncome.signum() < 0) {
             throw new IllegalArgumentException("monthlyIncome must be >= 0");
