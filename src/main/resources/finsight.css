@@ -1,0 +1,160 @@
+/*
+ * FinSight — Milestone 5I visual polish stylesheet.
+ *
+ * Deliberately small and readable rather than a design system: a light neutral page background,
+ * white "card" surfaces with a subtle border/shadow, dark readable text, one restrained accent
+ * color for primary actions, and semantic (but not color-only — every value that uses these is
+ * also prefixed with a +/- sign in its text) success/error colors for status messages and signed
+ * financial deltas. No gradients, no dark-mode variant, no external framework.
+ */
+
+/* ---------- Page ---------- */
+
+.root-background {
+    -fx-background-color: #F3F5F8;
+}
+
+.scroll-pane,
+.scroll-pane .viewport {
+    -fx-background-color: transparent;
+}
+.scroll-pane > .corner {
+    -fx-background-color: transparent;
+}
+
+/* ---------- Header ---------- */
+
+.app-header {
+    -fx-background-color: #FFFFFF;
+    -fx-border-color: transparent transparent #E2E6EC transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.app-title {
+    -fx-font-size: 26px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1A2233;
+}
+
+.app-subtitle {
+    -fx-font-size: 13px;
+    -fx-text-fill: #6B7688;
+}
+
+/* ---------- Section cards ---------- */
+
+.section-card {
+    -fx-background-color: #FFFFFF;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+    -fx-border-color: #E2E6EC;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+    -fx-effect: dropshadow(gaussian, rgba(23,32,51,0.07), 14, 0, 0, 3);
+}
+
+.section-heading {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1A2233;
+}
+
+.section-description {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: #6B7688;
+}
+
+/* ---------- Form controls ---------- */
+
+.field-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #4B5563;
+}
+
+.finsight-text-field {
+    -fx-background-color: #F8F9FB;
+    -fx-border-color: #D7DCE3;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 8 10 8 10;
+    -fx-font-size: 13px;
+    -fx-prompt-text-fill: #98A2B3;
+}
+.finsight-text-field:focused {
+    -fx-border-color: #3A5AE8;
+    -fx-background-color: #FFFFFF;
+}
+
+.primary-button {
+    -fx-background-color: #3A5AE8;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-background-radius: 6;
+    -fx-padding: 9 18 9 18;
+    -fx-cursor: hand;
+}
+.primary-button:hover {
+    -fx-background-color: #3049C4;
+}
+.primary-button:pressed,
+.primary-button:armed {
+    -fx-background-color: #263C9E;
+}
+
+/* ---------- Status messages ---------- */
+
+.status-message {
+    -fx-font-size: 12.5px;
+}
+.status-success {
+    -fx-text-fill: #157A45;
+}
+.status-error {
+    -fx-text-fill: #C13A2E;
+}
+
+/* ---------- Metric cards ---------- */
+
+.metric-card {
+    -fx-background-color: #F8F9FB;
+    -fx-background-radius: 8;
+    -fx-border-color: #E7EAEF;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 14 18 14 18;
+    -fx-min-width: 150;
+}
+
+.metric-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: #6B7688;
+}
+
+.metric-value {
+    -fx-font-size: 19px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1A2233;
+}
+
+.metric-value-positive {
+    -fx-text-fill: #157A45;
+}
+.metric-value-negative {
+    -fx-text-fill: #C13A2E;
+}
+
+/* ---------- Chart ---------- */
+
+.chart-container {
+    -fx-background-color: #FFFFFF;
+}
+
+.projection-chart .chart-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1A2233;
+}
+.projection-chart {
+    -fx-padding: 10 12 4 0;
+}
