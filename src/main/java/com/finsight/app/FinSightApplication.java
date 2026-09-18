@@ -1,9 +1,12 @@
 package com.finsight.app;
 
 import com.finsight.domain.account.Account;
+import com.finsight.domain.account.Currency;
 import com.finsight.domain.category.Category;
 import com.finsight.domain.category.CategoryType;
 import com.finsight.domain.financialprofile.FinancialProfile;
+import com.finsight.domain.investment.AssetType;
+import com.finsight.domain.investment.Investment;
 import com.finsight.domain.transaction.Transaction;
 import com.finsight.domain.transaction.TransactionType;
 import com.finsight.service.AccountBalance;
@@ -11,8 +14,13 @@ import com.finsight.service.SimulationApplicationService;
 import com.finsight.service.SimulationResult;
 import com.finsight.simulation.model.SimulationParameters;
 import com.finsight.simulation.scenario.ExpenseChangeEvent;
+import com.finsight.simulation.scenario.InvestmentContributionChangeEvent;
+import com.finsight.simulation.scenario.InvestmentReturnChangeEvent;
 import com.finsight.simulation.scenario.Scenario;
+import com.finsight.simulation.scenario.ScenarioEvent;
 import com.finsight.ui.FinancialDataFormatter;
+import com.finsight.ui.InvestmentFormatter;
+import com.finsight.ui.InvestmentRowView;
 import com.finsight.ui.ProjectionChartView;
 import com.finsight.ui.ScenarioComparisonView;
 import com.finsight.ui.SimulationResultFormatter;
@@ -158,6 +166,32 @@ import java.util.function.Consumer;
  * no current workflow in this UI can actually create a transfer, so this is defensive rather than
  * an active limitation of the accounts shown today. Adding a transaction refreshes both the
  * transaction list and every account's displayed balance immediately, with no restart required.
+ *
+ * <p><b>The Investments section (Investments milestone)</b> displays persisted investments and
+ * lets the user add a new one, entirely through
+ * {@link CompositionRoot#getInvestmentApplicationService()} — never a repository directly.
+ * Invested value, current value, and gain/loss are computed by the existing, already-tested
+ * {@code InvestmentCalculator} (via {@link InvestmentFormatter}), never by this class; every figure
+ * is shown in the investment's own currency, with no conversion to INR (see
+ * {@link InvestmentFormatter}'s own documentation for why). ADD and VIEW are the only supported
+ * workflows — there is deliberately no edit or delete, matching {@code InvestmentRepository}'s own
+ * by-design omission of {@code update}. Because {@code SnapshotBuilder} already consumes every
+ * persisted investment unconditionally, an investment added here is automatically reflected the
+ * very next time "Run Simulation" or either scenario is run — the same "no further wiring needed"
+ * property every other section of this application already relies on.
+ *
+ * <p><b>The Investment Scenario section (Decision Lab, Investments milestone)</b> is a second,
+ * independent scenario action alongside the expense scenario above — not a replacement or a
+ * generalization of it. It lets the user pick a persisted investment from a
+ * {@code ComboBox<Investment>} (labeled by name and asset type, never by database id — see
+ * {@link InvestmentFormatter#formatInvestmentOptionLabel}) and change either its monthly
+ * contribution or its expected annual return, building exactly one
+ * {@code InvestmentContributionChangeEvent} or {@code InvestmentReturnChangeEvent} — both of which,
+ * and the {@code SimulationEngine} logic that applies them, already existed and are already fully
+ * tested before this milestone; nothing about either is modified here. The controls are disabled,
+ * with an explanatory label shown instead, whenever no investments are persisted yet — a
+ * presentation-only check against the same {@code ObservableList} {@code buildInvestmentsSection}
+ * populates, not a new validation rule.
  */
 public class FinSightApplication extends Application {
 
@@ -183,6 +217,14 @@ public class FinSightApplication extends Application {
         VBox header = buildHeader();
         VBox profileSection = buildProfileSection();
         VBox financialDataSection = buildFinancialDataSection();
+
+        // Shared between buildInvestmentsSection() below and the Decision Lab's investment
+        // scenario controls further down this method: every refresh inside
+        // buildInvestmentsSection() (initial population and after a successful add) updates this
+        // same ObservableList, so the scenario controls' ComboBox and enabled/disabled state stay
+        // in sync with what is actually persisted, with no separate notification mechanism needed.
+        ObservableList<Investment> investmentsList = FXCollections.observableArrayList();
+        VBox investmentsSection = buildInvestmentsSection(investmentsList);
 
         // ---------- Financial Projection section ----------
 
@@ -356,9 +398,169 @@ public class FinSightApplication extends Application {
                 scenarioSectionLabel, scenarioDescription, scenarioInputRow, scenarioStatusLabel, comparisonRow);
         scenarioSection.getStyleClass().add("section-card");
 
+        // ---------- Investment Scenario section (Decision Lab, investment-event integration) ----------
+        //
+        // A separate action from the expense scenario above, not a replacement or a generalized
+        // multi-event builder (per this milestone's explicit design decision) — the expense
+        // scenario's code path above is untouched. Reads investmentsList (populated by
+        // buildInvestmentsSection() above) to drive a ComboBox<Investment> and to gate the
+        // controls' enabled state, satisfying "never ask the user to type an investment id" and
+        // "disable the controls when there are zero investments."
+
+        Label investmentScenarioSectionLabel = new Label("Investment Scenario");
+        investmentScenarioSectionLabel.getStyleClass().add("section-heading");
+
+        Label investmentScenarioDescription = new Label(
+                "What happens if a specific investment's monthly contribution or expected annual return changes?");
+        investmentScenarioDescription.getStyleClass().add("section-description");
+        investmentScenarioDescription.setWrapText(true);
+
+        Label noInvestmentsLabel = new Label("Add an investment above to enable investment-targeting scenarios.");
+        noInvestmentsLabel.getStyleClass().add("section-description");
+        noInvestmentsLabel.setWrapText(true);
+
+        Label investmentFieldLabel = new Label("Investment");
+        investmentFieldLabel.getStyleClass().add("field-label");
+        ComboBox<Investment> investmentScenarioComboBox = new ComboBox<>(investmentsList);
+        investmentScenarioComboBox.getStyleClass().add("finsight-text-field");
+        investmentScenarioComboBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(Investment investment) {
+                // "Name (Asset Type)" — never the database id (see InvestmentFormatter's own
+                // documentation on this method).
+                return investment == null ? "" : InvestmentFormatter.formatInvestmentOptionLabel(investment);
+            }
+
+            @Override
+            public Investment fromString(String string) {
+                return null; // this ComboBox is not editable; a reverse conversion is never used
+            }
+        });
+        VBox investmentFieldBox = new VBox(4, investmentFieldLabel, investmentScenarioComboBox);
+
+        Label scenarioTypeFieldLabel = new Label("Scenario type");
+        scenarioTypeFieldLabel.getStyleClass().add("field-label");
+        ComboBox<String> investmentScenarioTypeComboBox = new ComboBox<>(FXCollections.observableArrayList(
+                "Change monthly contribution", "Change expected annual return"));
+        investmentScenarioTypeComboBox.getStyleClass().add("finsight-text-field");
+        investmentScenarioTypeComboBox.getSelectionModel().selectFirst();
+        VBox scenarioTypeFieldBox = new VBox(4, scenarioTypeFieldLabel, investmentScenarioTypeComboBox);
+
+        Label investmentValueFieldLabel = new Label("New value");
+        investmentValueFieldLabel.getStyleClass().add("field-label");
+        TextField investmentScenarioValueField = new TextField();
+        investmentScenarioValueField.getStyleClass().add("finsight-text-field");
+        investmentScenarioValueField.setPrefColumnCount(10);
+        VBox investmentValueFieldBox = new VBox(4, investmentValueFieldLabel, investmentScenarioValueField);
+
+        Label investmentDateFieldLabel = new Label("Effective date");
+        investmentDateFieldLabel.getStyleClass().add("field-label");
+        TextField investmentScenarioDateField = new TextField(LocalDate.now().toString());
+        investmentScenarioDateField.getStyleClass().add("finsight-text-field");
+        investmentScenarioDateField.setPrefColumnCount(10);
+        VBox investmentDateFieldBox = new VBox(4, investmentDateFieldLabel, investmentScenarioDateField);
+
+        Button runInvestmentScenarioButton = new Button("Run Investment Scenario");
+        runInvestmentScenarioButton.getStyleClass().add("primary-button");
+
+        HBox investmentScenarioInputRowTop = new HBox(16, investmentFieldBox, scenarioTypeFieldBox);
+        HBox investmentScenarioInputRowBottom = new HBox(
+                16, investmentValueFieldBox, investmentDateFieldBox, runInvestmentScenarioButton);
+        investmentScenarioInputRowBottom.setAlignment(Pos.BOTTOM_LEFT);
+        VBox investmentScenarioInputRows = new VBox(12, investmentScenarioInputRowTop, investmentScenarioInputRowBottom);
+
+        Label investmentScenarioStatusLabel = new Label("Select an investment, choose what to change, and click "
+                + "\"Run Investment Scenario\" to compare it against the baseline.");
+        investmentScenarioStatusLabel.getStyleClass().add("section-description");
+        investmentScenarioStatusLabel.setWrapText(true);
+
+        Label investmentScenarioBaselineNetWorthValue = new Label();
+        Label investmentScenarioResultNetWorthValue = new Label();
+        Label investmentScenarioNetWorthImpactValue = new Label();
+
+        FlowPane investmentComparisonRow = new FlowPane(16, 16,
+                metricCard("Baseline — net worth after month " + PROJECTION_MONTHS, investmentScenarioBaselineNetWorthValue),
+                metricCard("Scenario — net worth after month " + PROJECTION_MONTHS, investmentScenarioResultNetWorthValue),
+                metricCard("Net worth impact", investmentScenarioNetWorthImpactValue));
+        investmentComparisonRow.setVisible(false);
+        investmentComparisonRow.setManaged(false);
+
+        // Presentation-only gate: whenever investmentsList is empty, the input controls are
+        // disabled and noInvestmentsLabel is shown in their place instead — no new validation rule
+        // is introduced anywhere (InvestmentApplicationService and SimulationEngine remain the sole
+        // source of any real validation). Re-evaluated every time investmentsList changes, so
+        // adding the first investment above enables these controls immediately, with no restart.
+        Runnable updateInvestmentScenarioAvailability = () -> {
+            boolean hasInvestments = !investmentsList.isEmpty();
+            investmentScenarioComboBox.setDisable(!hasInvestments);
+            investmentScenarioTypeComboBox.setDisable(!hasInvestments);
+            investmentScenarioValueField.setDisable(!hasInvestments);
+            investmentScenarioDateField.setDisable(!hasInvestments);
+            runInvestmentScenarioButton.setDisable(!hasInvestments);
+            setVisibleAndManaged(noInvestmentsLabel, !hasInvestments);
+            setVisibleAndManaged(investmentScenarioInputRows, hasInvestments);
+        };
+        investmentsList.addListener(
+                (javafx.collections.ListChangeListener<Investment>) change -> updateInvestmentScenarioAvailability.run());
+        updateInvestmentScenarioAvailability.run();
+
+        runInvestmentScenarioButton.setOnAction(event -> {
+            Investment selectedInvestment = investmentScenarioComboBox.getValue();
+            String scenarioType = investmentScenarioTypeComboBox.getValue();
+            if (selectedInvestment == null || scenarioType == null) {
+                showStatus(investmentScenarioStatusLabel, "Please select an investment and a scenario type.", false);
+                return;
+            }
+            try {
+                BigDecimal newValue = new BigDecimal(investmentScenarioValueField.getText().trim());
+                if (newValue.signum() < 0) {
+                    throw new IllegalArgumentException("The new value must not be negative.");
+                }
+                LocalDate effectiveDate = LocalDate.parse(investmentScenarioDateField.getText().trim());
+
+                // The investment id is read off the selected Investment object itself — never
+                // typed or displayed as raw text — satisfying "never display the database ID as
+                // the primary label."
+                ScenarioEvent investmentEvent = scenarioType.equals("Change monthly contribution")
+                        ? new InvestmentContributionChangeEvent(effectiveDate, selectedInvestment.getId(), newValue)
+                        : new InvestmentReturnChangeEvent(effectiveDate, selectedInvestment.getId(), newValue);
+
+                SimulationResult result = runInvestmentScenario(investmentEvent);
+                ScenarioComparisonView view = SimulationResultFormatter.formatComparison(result);
+
+                investmentScenarioBaselineNetWorthValue.setText(view.getBaselineNetWorthAfterFinalMonth());
+                investmentScenarioResultNetWorthValue.setText(view.getScenarioNetWorthAfterFinalMonth());
+                investmentScenarioNetWorthImpactValue.setText(view.getNetWorthImpact());
+                applySemanticValueStyle(investmentScenarioNetWorthImpactValue, view.getNetWorthImpact());
+
+                showStatus(investmentScenarioStatusLabel,
+                        "Comparing the baseline against the selected investment scenario.", true);
+                setVisibleAndManaged(investmentComparisonRow, true);
+
+                // Refreshes both chart series from this one result, exactly like the expense
+                // scenario above — not a second calculation, just re-plotting this runScenario()
+                // call's own output.
+                projectionChartView.showBaseline(result.getBaselineProjection());
+                projectionChartView.showScenario(result.getScenarioProjection());
+                setVisibleAndManaged(projectionPeriodCaption, true);
+                setVisibleAndManaged(metricsRow, true);
+                setVisibleAndManaged(projectionChartView, true);
+            } catch (RuntimeException e) {
+                setVisibleAndManaged(investmentComparisonRow, false);
+                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                showStatus(investmentScenarioStatusLabel, "Could not run the investment scenario: " + reason, false);
+            }
+        });
+
+        VBox investmentScenarioSection = new VBox(16,
+                investmentScenarioSectionLabel, investmentScenarioDescription, noInvestmentsLabel,
+                investmentScenarioInputRows, investmentScenarioStatusLabel, investmentComparisonRow);
+        investmentScenarioSection.getStyleClass().add("section-card");
+
         // ---------- Assemble the page ----------
 
-        VBox content = new VBox(24, profileSection, financialDataSection, projectionSection, scenarioSection);
+        VBox content = new VBox(24, profileSection, financialDataSection, investmentsSection,
+                projectionSection, scenarioSection, investmentScenarioSection);
         content.setMaxWidth(880);
         content.setPadding(new Insets(28, 32, 40, 32));
 
@@ -698,6 +900,243 @@ public class FinSightApplication extends Application {
     }
 
     /**
+     * Builds the "Investments" card (the Investments milestone): a table of persisted investments
+     * and an "Add Investment" form — reusing the existing 5I/5J visual language
+     * ({@code section-card}, {@code field-label}, {@code finsight-text-field},
+     * {@code primary-button}, {@code status-message}) rather than introducing any new CSS class.
+     *
+     * <p>Every piece of data shown here is read through
+     * {@link CompositionRoot#getInvestmentApplicationService()} (never a repository directly), and
+     * "Add Investment" delegates entirely to {@code InvestmentApplicationService.addInvestment} —
+     * this method parses only the numeric text fields (matching the exact pattern the Financial
+     * Data section's "Add Transaction" form already established) and performs the "an account,
+     * asset type, and currency must actually be selected" empty-field check the milestone spec
+     * explicitly allows the UI to do; every other validation rule (account exists, name non-blank,
+     * quantity positive, ...) remains {@code InvestmentApplicationService}'s and
+     * {@link Investment}'s own responsibility, invoked and never duplicated here.
+     *
+     * <p>Every monetary figure is displayed via {@link InvestmentFormatter}, in the investment's
+     * own currency — never converted to INR here (see that class's own documentation for why).
+     *
+     * @param investmentsList the single {@link ObservableList} shared with the Decision Lab's
+     *     investment scenario controls built later in {@link #start(Stage)}; every refresh here
+     *     (initial population and after a successful add) updates this same list, so those
+     *     controls' {@code ComboBox} and enabled state stay in sync with what is actually
+     *     persisted, with no separate notification mechanism needed
+     */
+    private VBox buildInvestmentsSection(ObservableList<Investment> investmentsList) {
+        Label sectionLabel = new Label("Investments");
+        sectionLabel.getStyleClass().add("section-heading");
+
+        // ---------- Holdings table ----------
+
+        Label holdingsHeading = new Label("Holdings");
+        holdingsHeading.getStyleClass().add("field-label");
+
+        TableView<InvestmentRowView> investmentsTable = new TableView<>();
+        TableColumn<InvestmentRowView, String> nameColumn = new TableColumn<>("Name");
+        nameColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getName()));
+        TableColumn<InvestmentRowView, String> tickerColumn = new TableColumn<>("Ticker");
+        tickerColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getTicker()));
+        TableColumn<InvestmentRowView, String> assetTypeColumn = new TableColumn<>("Asset Type");
+        assetTypeColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAssetType()));
+        TableColumn<InvestmentRowView, String> currencyColumn = new TableColumn<>("Currency");
+        currencyColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCurrency()));
+        TableColumn<InvestmentRowView, String> quantityColumn = new TableColumn<>("Quantity");
+        quantityColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getQuantity()));
+        TableColumn<InvestmentRowView, String> avgPriceColumn = new TableColumn<>("Avg. Purchase Price");
+        avgPriceColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAveragePurchasePrice()));
+        TableColumn<InvestmentRowView, String> currentPriceColumn = new TableColumn<>("Current Price");
+        currentPriceColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCurrentPrice()));
+        TableColumn<InvestmentRowView, String> investedValueColumn = new TableColumn<>("Invested Value");
+        investedValueColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getInvestedValue()));
+        TableColumn<InvestmentRowView, String> currentValueColumn = new TableColumn<>("Current Value");
+        currentValueColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCurrentValue()));
+        TableColumn<InvestmentRowView, String> gainLossColumn = new TableColumn<>("Gain/Loss");
+        gainLossColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getGainLoss()));
+        TableColumn<InvestmentRowView, String> accountColumn = new TableColumn<>("Account");
+        accountColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAccountName()));
+        investmentsTable.getColumns().setAll(List.of(
+                nameColumn, tickerColumn, assetTypeColumn, currencyColumn, quantityColumn,
+                avgPriceColumn, currentPriceColumn, investedValueColumn, currentValueColumn,
+                gainLossColumn, accountColumn));
+        investmentsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        investmentsTable.setPlaceholder(new Label("No investments yet. Add one below."));
+        investmentsTable.setPrefHeight(200);
+
+        // ---------- Add Investment form ----------
+
+        Label addInvestmentHeading = new Label("Add Investment");
+        addInvestmentHeading.getStyleClass().add("field-label");
+
+        Label accountFieldLabel = new Label("Account");
+        accountFieldLabel.getStyleClass().add("field-label");
+        ComboBox<Account> investmentAccountComboBox = new ComboBox<>();
+        investmentAccountComboBox.getStyleClass().add("finsight-text-field");
+        investmentAccountComboBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(Account account) {
+                return account == null ? "" : account.getName();
+            }
+
+            @Override
+            public Account fromString(String string) {
+                return null; // this ComboBox is not editable; a reverse conversion is never used
+            }
+        });
+        VBox accountFieldBox = new VBox(4, accountFieldLabel, investmentAccountComboBox);
+
+        Label nameFieldLabel = new Label("Name");
+        nameFieldLabel.getStyleClass().add("field-label");
+        TextField investmentNameField = new TextField();
+        investmentNameField.getStyleClass().add("finsight-text-field");
+        investmentNameField.setPrefColumnCount(14);
+        VBox nameFieldBox = new VBox(4, nameFieldLabel, investmentNameField);
+
+        Label tickerFieldLabel = new Label("Ticker (optional)");
+        tickerFieldLabel.getStyleClass().add("field-label");
+        TextField investmentTickerField = new TextField();
+        investmentTickerField.getStyleClass().add("finsight-text-field");
+        investmentTickerField.setPrefColumnCount(10);
+        VBox tickerFieldBox = new VBox(4, tickerFieldLabel, investmentTickerField);
+
+        Label assetTypeFieldLabel = new Label("Asset Type");
+        assetTypeFieldLabel.getStyleClass().add("field-label");
+        ComboBox<AssetType> investmentAssetTypeComboBox =
+                new ComboBox<>(FXCollections.observableArrayList(AssetType.values()));
+        investmentAssetTypeComboBox.getStyleClass().add("finsight-text-field");
+        VBox assetTypeFieldBox = new VBox(4, assetTypeFieldLabel, investmentAssetTypeComboBox);
+
+        Label currencyFieldLabel = new Label("Currency");
+        currencyFieldLabel.getStyleClass().add("field-label");
+        ComboBox<Currency> investmentCurrencyComboBox =
+                new ComboBox<>(FXCollections.observableArrayList(Currency.values()));
+        investmentCurrencyComboBox.getStyleClass().add("finsight-text-field");
+        VBox currencyFieldBox = new VBox(4, currencyFieldLabel, investmentCurrencyComboBox);
+
+        Label quantityFieldLabel = new Label("Quantity");
+        quantityFieldLabel.getStyleClass().add("field-label");
+        TextField investmentQuantityField = new TextField();
+        investmentQuantityField.getStyleClass().add("finsight-text-field");
+        investmentQuantityField.setPrefColumnCount(8);
+        VBox quantityFieldBox = new VBox(4, quantityFieldLabel, investmentQuantityField);
+
+        Label avgPriceFieldLabel = new Label("Average Purchase Price");
+        avgPriceFieldLabel.getStyleClass().add("field-label");
+        TextField investmentAvgPriceField = new TextField();
+        investmentAvgPriceField.getStyleClass().add("finsight-text-field");
+        investmentAvgPriceField.setPrefColumnCount(10);
+        VBox avgPriceFieldBox = new VBox(4, avgPriceFieldLabel, investmentAvgPriceField);
+
+        Label currentPriceFieldLabel = new Label("Current Price");
+        currentPriceFieldLabel.getStyleClass().add("field-label");
+        TextField investmentCurrentPriceField = new TextField();
+        investmentCurrentPriceField.getStyleClass().add("finsight-text-field");
+        investmentCurrentPriceField.setPrefColumnCount(10);
+        VBox currentPriceFieldBox = new VBox(4, currentPriceFieldLabel, investmentCurrentPriceField);
+
+        Label expectedReturnFieldLabel = new Label("Expected Annual Return");
+        expectedReturnFieldLabel.getStyleClass().add("field-label");
+        TextField investmentExpectedReturnField = new TextField("0.00");
+        investmentExpectedReturnField.getStyleClass().add("finsight-text-field");
+        investmentExpectedReturnField.setPrefColumnCount(8);
+        VBox expectedReturnFieldBox = new VBox(4, expectedReturnFieldLabel, investmentExpectedReturnField);
+
+        Label monthlyContributionFieldLabel = new Label("Monthly Contribution");
+        monthlyContributionFieldLabel.getStyleClass().add("field-label");
+        TextField investmentMonthlyContributionField = new TextField("0.00");
+        investmentMonthlyContributionField.getStyleClass().add("finsight-text-field");
+        investmentMonthlyContributionField.setPrefColumnCount(10);
+        VBox monthlyContributionFieldBox = new VBox(4, monthlyContributionFieldLabel, investmentMonthlyContributionField);
+
+        Button addInvestmentButton = new Button("Add Investment");
+        addInvestmentButton.getStyleClass().add("primary-button");
+
+        HBox investmentFormRowOne = new HBox(16, accountFieldBox, nameFieldBox, tickerFieldBox);
+        HBox investmentFormRowTwo = new HBox(16, assetTypeFieldBox, currencyFieldBox, quantityFieldBox);
+        HBox investmentFormRowThree = new HBox(16, avgPriceFieldBox, currentPriceFieldBox, expectedReturnFieldBox);
+        HBox investmentFormRowFour = new HBox(16, monthlyContributionFieldBox, addInvestmentButton);
+        investmentFormRowFour.setAlignment(Pos.BOTTOM_LEFT);
+        VBox investmentFormRows = new VBox(
+                12, investmentFormRowOne, investmentFormRowTwo, investmentFormRowThree, investmentFormRowFour);
+
+        Label investmentsStatusLabel = new Label();
+        investmentsStatusLabel.getStyleClass().add("status-message");
+        investmentsStatusLabel.setWrapText(true);
+
+        // Re-reads every account/investment through FinancialDataApplicationService/
+        // InvestmentApplicationService and repaints the account ComboBox and the investments table
+        // from that fresh read — never by mutating either in place from a single add-investment
+        // call, matching buildFinancialDataSection()'s identical refresh discipline. Also updates
+        // investmentsList, the ObservableList shared with the Decision Lab's investment scenario
+        // controls, so their ComboBox and enabled state stay in sync immediately.
+        Runnable refreshInvestments = () -> {
+            List<Account> accounts = compositionRoot.getFinancialDataApplicationService().getAccounts();
+            List<Investment> investments = compositionRoot.getInvestmentApplicationService().getInvestments();
+
+            investmentAccountComboBox.getItems().setAll(accounts);
+            investmentsTable.getItems().setAll(InvestmentFormatter.toInvestmentRows(investments, accounts));
+            investmentsList.setAll(investments);
+        };
+
+        addInvestmentButton.setOnAction(event -> {
+            Account selectedAccount = investmentAccountComboBox.getValue();
+            AssetType selectedAssetType = investmentAssetTypeComboBox.getValue();
+            Currency selectedCurrency = investmentCurrencyComboBox.getValue();
+            if (selectedAccount == null || selectedAssetType == null || selectedCurrency == null) {
+                showStatus(investmentsStatusLabel, "Please select an account, asset type, and currency.", false);
+                return;
+            }
+            try {
+                String name = investmentNameField.getText().trim();
+                String ticker = investmentTickerField.getText().trim();
+                BigDecimal quantity = new BigDecimal(investmentQuantityField.getText().trim());
+                BigDecimal averagePurchasePrice = new BigDecimal(investmentAvgPriceField.getText().trim());
+                BigDecimal currentPrice = new BigDecimal(investmentCurrentPriceField.getText().trim());
+                BigDecimal expectedAnnualReturn = new BigDecimal(investmentExpectedReturnField.getText().trim());
+                BigDecimal monthlyContribution = new BigDecimal(investmentMonthlyContributionField.getText().trim());
+
+                compositionRoot.getInvestmentApplicationService().addInvestment(
+                        selectedAccount.getId(), name, ticker.isEmpty() ? null : ticker, selectedAssetType,
+                        selectedCurrency, quantity, averagePurchasePrice, currentPrice,
+                        expectedAnnualReturn, monthlyContribution);
+
+                investmentNameField.clear();
+                investmentTickerField.clear();
+                investmentQuantityField.clear();
+                investmentAvgPriceField.clear();
+                investmentCurrentPriceField.clear();
+                investmentExpectedReturnField.setText("0.00");
+                investmentMonthlyContributionField.setText("0.00");
+
+                showStatus(investmentsStatusLabel,
+                        "Investment saved. Click \"Run Simulation\" to see it reflected in your projection.", true);
+                refreshInvestments.run();
+            } catch (RuntimeException e) {
+                // Every failure this can realistically be (ApplicationValidationException for a
+                // stale/missing account, IllegalArgumentException/NullPointerException from
+                // Investment's own constructor, NumberFormatException from a malformed numeric
+                // field, or RepositoryException from a storage failure) already carries a plain,
+                // user-facing message — never a raw SQL stack trace — matching every other
+                // try/catch in this class.
+                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                showStatus(investmentsStatusLabel, "Could not add the investment: " + reason, false);
+            }
+        });
+
+        // Initial population, so investments are visible immediately on launch rather than only
+        // after some button click — matching buildFinancialDataSection()'s identical rationale.
+        refreshInvestments.run();
+
+        VBox investmentsSection = new VBox(16,
+                sectionLabel,
+                holdingsHeading, investmentsTable,
+                addInvestmentHeading, investmentFormRows, investmentsStatusLabel);
+        investmentsSection.getStyleClass().add("section-card");
+        return investmentsSection;
+    }
+
+    /**
      * A compact account display card: reuses {@link #metricCard} exactly as the Projection and
      * Scenario sections already do, with the account's name/type/currency as the muted label line
      * and its current balance (Milestone 5K; opening balance combined with transactions, already
@@ -814,6 +1253,32 @@ public class FinSightApplication extends Application {
                 asOfDate, List.of(new ExpenseChangeEvent(asOfDate, newMonthlyExpenses)));
 
         return simulationApplicationService.runScenario(asOfDate, parameters, expenseIncreaseScenario);
+    }
+
+    /**
+     * Runs the same fixed 12-month, zero-growth parameters as {@link #runBaselineSimulation()} and
+     * {@link #runExpenseIncreaseScenario(BigDecimal)}, but with a real, one-event {@link Scenario}
+     * carrying exactly one investment-targeting {@link ScenarioEvent} — either an
+     * {@link InvestmentContributionChangeEvent} or an {@link InvestmentReturnChangeEvent},
+     * constructed by the caller from the user's selected investment and scenario type. Neither
+     * {@code SimulationEngine} nor either {@code ScenarioEvent} subclass is modified for this: both
+     * event types, and the engine's handling of them, already existed and are already fully tested
+     * (see {@code ScenarioApplicationTest}) — this method only wires an already-tested event into
+     * the same already-tested {@link SimulationApplicationService#runScenario} call the other two
+     * scenario methods in this class already use.
+     */
+    private SimulationResult runInvestmentScenario(ScenarioEvent investmentEvent) {
+        SimulationApplicationService simulationApplicationService = compositionRoot.getSimulationApplicationService();
+
+        LocalDate asOfDate = LocalDate.now();
+        SimulationParameters parameters =
+                new SimulationParameters(PROJECTION_MONTHS, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ONE);
+        Scenario investmentScenario = new Scenario(
+                0L, "Investment scenario",
+                "A single investment-targeting event (contribution or return-rate change), effective as specified.",
+                asOfDate, List.of(investmentEvent));
+
+        return simulationApplicationService.runScenario(asOfDate, parameters, investmentScenario);
     }
 
     @Override

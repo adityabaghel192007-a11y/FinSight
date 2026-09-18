@@ -18,6 +18,7 @@ import com.finsight.repository.jdbc.SqliteConnectionProvider;
 import com.finsight.repository.jdbc.TransactionRepositoryJdbc;
 import com.finsight.service.FinancialDataApplicationService;
 import com.finsight.service.FinancialProfileApplicationService;
+import com.finsight.service.InvestmentApplicationService;
 import com.finsight.service.SimulationApplicationService;
 import com.finsight.service.SnapshotBuilder;
 import com.finsight.service.TransactionApplicationService;
@@ -52,8 +53,13 @@ import java.util.Objects;
  * and {@link GoalRepositoryJdbc} for {@link SnapshotBuilder}, plus {@link CategoryRepositoryJdbc}
  * (needed only by {@link TransactionApplicationService}, not by {@link SnapshotBuilder}) — then
  * {@link SnapshotBuilder}, {@link SimulationApplicationService}, {@link TransactionApplicationService},
- * and (Milestone 5J) {@link FinancialDataApplicationService} from those same repository instances —
- * no repository is ever constructed twice.
+ * (Milestone 5J) {@link FinancialDataApplicationService}, and (the Investments milestone)
+ * {@link InvestmentApplicationService} from those same repository instances — no repository is
+ * ever constructed twice. {@link InvestmentApplicationService} is built from the exact same
+ * {@code investmentRepository}/{@code accountRepository} instances {@link SnapshotBuilder} already
+ * uses, so an investment added through it is immediately visible to the very next simulation run,
+ * with no further wiring — the same "no further wiring needed" property every other section of
+ * this application already relies on.
  *
  * <p>{@code BudgetRepositoryJdbc} is deliberately <b>not</b> constructed here: nothing in the
  * current dependency graph ({@link SnapshotBuilder} or {@link TransactionApplicationService})
@@ -94,6 +100,7 @@ public final class CompositionRoot implements AutoCloseable {
     private final TransactionApplicationService transactionApplicationService;
     private final FinancialProfileApplicationService financialProfileApplicationService;
     private final FinancialDataApplicationService financialDataApplicationService;
+    private final InvestmentApplicationService investmentApplicationService;
 
     /**
      * Opens a connection to {@code jdbcUrl}, initializes the database schema on it, and
@@ -135,6 +142,9 @@ public final class CompositionRoot implements AutoCloseable {
 
         this.financialDataApplicationService =
                 new FinancialDataApplicationService(accountRepository, categoryRepository, transactionRepository);
+
+        this.investmentApplicationService =
+                new InvestmentApplicationService(investmentRepository, accountRepository);
     }
 
     /**
@@ -175,6 +185,19 @@ public final class CompositionRoot implements AutoCloseable {
      */
     public FinancialDataApplicationService getFinancialDataApplicationService() {
         return financialDataApplicationService;
+    }
+
+    /**
+     * The application service for reading every persisted investment and adding a new one (the
+     * Investments milestone) — for a UI that needs both without a repository accessor. Backed by
+     * the same {@link InvestmentRepository}/{@link AccountRepository} instances
+     * {@link SnapshotBuilder} already uses for {@code accountRepository} and reads investments
+     * from, so a read through this service always sees the same data a simulation run already
+     * consumed, and an investment added through {@link InvestmentApplicationService#addInvestment}
+     * is visible to the very next {@code runScenario} call with no further wiring.
+     */
+    public InvestmentApplicationService getInvestmentApplicationService() {
+        return investmentApplicationService;
     }
 
     /**

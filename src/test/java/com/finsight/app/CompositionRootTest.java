@@ -5,6 +5,7 @@ import com.finsight.repository.RepositoryException;
 import com.finsight.repository.jdbc.FinancialProfileRepositoryJdbc;
 import com.finsight.repository.jdbc.SchemaInitializer;
 import com.finsight.repository.jdbc.SqliteConnectionProvider;
+import com.finsight.service.InvestmentApplicationService;
 import com.finsight.service.SimulationApplicationService;
 import com.finsight.service.SimulationResult;
 import com.finsight.service.TransactionApplicationService;
@@ -136,6 +137,22 @@ class CompositionRootTest {
             TransactionApplicationService transactionApplicationService = context.getTransactionApplicationService();
 
             assertNotNull(transactionApplicationService);
+        }
+    }
+
+    /**
+     * The Investments milestone's equivalent of {@link #transactionApplicationServiceIsConstructed()}
+     * above — same rationale and same limitation (verifies construction only; a real add-investment
+     * workflow needs a persisted {@link com.finsight.domain.account.Account} that cannot be created
+     * through {@link CompositionRoot}'s own exposed API without expanding its accessor surface
+     * beyond what this milestone calls for).
+     */
+    @Test
+    void investmentApplicationServiceIsConstructed() {
+        try (CompositionRoot context = new CompositionRoot("jdbc:sqlite::memory:")) {
+            InvestmentApplicationService investmentApplicationService = context.getInvestmentApplicationService();
+
+            assertNotNull(investmentApplicationService);
         }
     }
 
