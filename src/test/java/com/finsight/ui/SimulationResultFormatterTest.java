@@ -214,4 +214,101 @@ class SimulationResultFormatterTest {
 
         assertThrows(IllegalArgumentException.class, () -> SimulationResultFormatter.format(result));
     }
+
+    // ===================== formatComparison — all five metrics (Milestone 6A) =====================
+
+    /**
+     * {@code ScenarioComparison} has, since the Investments milestone, already computed five
+     * metric categories (net worth, investment value, loan balance, cash balance, total investment
+     * contributions), each as baseline/scenario/difference plus a percentage change — but
+     * {@link SimulationResultFormatter#formatComparison} previously read only the net worth triple
+     * (see the two tests above this section). This test proves it now reads and formats all twenty
+     * figures, with a deliberate mix of positive and negative differences across different metrics
+     * (investment value and cash balance fall from baseline to scenario; net worth, loan balance,
+     * and investment contributions rise) so both branches of the signed-money/signed-percentage
+     * formatting are exercised across genuinely different metrics, not just net worth twice.
+     */
+    @Test
+    void formatsAllFiveMetricCategoriesWithMixedPositiveAndNegativeDifferences() {
+        ScenarioComparison comparison = new ScenarioComparison(
+                new BigDecimal("300000.00"), new BigDecimal("360000.00"), // net worth: +60,000.00 / +20.00%
+                new BigDecimal("500000.00"), new BigDecimal("450000.00"), // investment value: -50,000.00 / -10.00%
+                new BigDecimal("100000.00"), new BigDecimal("120000.00"), // loan balance: +20,000.00 / +20.00%
+                new BigDecimal("50000.00"), new BigDecimal("40000.00"),   // cash balance: -10,000.00 / -20.00%
+                new BigDecimal("12000.00"), new BigDecimal("15000.00"));  // contributions: +3,000.00 / +25.00%
+        LocalDate date = LocalDate.of(2026, 4, 1);
+        Projection placeholder = new Projection(date, date,
+                List.of(state(date, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)));
+        SimulationResult result = new SimulationResult(placeholder, placeholder, comparison);
+
+        ScenarioComparisonView view = SimulationResultFormatter.formatComparison(result);
+
+        // net worth — unchanged fields, still correct alongside the newly added ones
+        assertEquals("300,000.00", view.getBaselineNetWorthAfterFinalMonth());
+        assertEquals("360,000.00", view.getScenarioNetWorthAfterFinalMonth());
+        assertEquals("+60,000.00", view.getNetWorthImpact());
+        assertEquals("+20.00%", view.getNetWorthPercentageChange());
+
+        // investment value — a negative difference and a negative percentage change
+        assertEquals("500,000.00", view.getBaselineInvestmentValueAfterFinalMonth());
+        assertEquals("450,000.00", view.getScenarioInvestmentValueAfterFinalMonth());
+        assertEquals("-50,000.00", view.getInvestmentValueImpact());
+        assertEquals("-10.00%", view.getInvestmentValuePercentageChange());
+
+        // loan balance
+        assertEquals("100,000.00", view.getBaselineLoanBalanceAfterFinalMonth());
+        assertEquals("120,000.00", view.getScenarioLoanBalanceAfterFinalMonth());
+        assertEquals("+20,000.00", view.getLoanBalanceImpact());
+        assertEquals("+20.00%", view.getLoanBalancePercentageChange());
+
+        // cash balance — another negative difference/percentage
+        assertEquals("50,000.00", view.getBaselineCashBalanceAfterFinalMonth());
+        assertEquals("40,000.00", view.getScenarioCashBalanceAfterFinalMonth());
+        assertEquals("-10,000.00", view.getCashBalanceImpact());
+        assertEquals("-20.00%", view.getCashBalancePercentageChange());
+
+        // total investment contributions
+        assertEquals("12,000.00", view.getBaselineTotalInvestmentContributions());
+        assertEquals("15,000.00", view.getScenarioTotalInvestmentContributions());
+        assertEquals("+3,000.00", view.getInvestmentContributionImpact());
+        assertEquals("+25.00%", view.getInvestmentContributionPercentageChange());
+    }
+
+    /**
+     * {@link ScenarioComparison}'s percentage-change getters return {@link java.util.Optional#empty()}
+     * whenever the corresponding baseline figure is exactly zero (see its own documentation) —
+     * this test proves {@link SimulationResultFormatter#formatComparison} renders that as
+     * {@code "n/a"} rather than a misleading number, for three independently zero-baseline metrics
+     * (investment value, loan balance, cash balance all zero/zero here), while a genuinely
+     * zero-<em>difference</em> but non-zero-baseline metric (net worth: 100,000.00 unchanged)
+     * correctly still produces a present {@code "0.00%"} rather than {@code "n/a"} — proving the
+     * two "zero" cases are not conflated. The investment-contributions metric's baseline is zero
+     * but its scenario is not, so its absolute difference is a real, non-zero, positive figure
+     * even though its percentage change is undefined.
+     */
+    @Test
+    void formatsZeroBaselinePercentageChangeAsNotApplicable() {
+        ScenarioComparison comparison = new ScenarioComparison(
+                new BigDecimal("100000.00"), new BigDecimal("100000.00"), // net worth: no change at all
+                BigDecimal.ZERO, BigDecimal.ZERO,                         // investment value: zero baseline
+                BigDecimal.ZERO, BigDecimal.ZERO,                         // loan balance: zero baseline
+                BigDecimal.ZERO, BigDecimal.ZERO,                         // cash balance: zero baseline
+                BigDecimal.ZERO, new BigDecimal("5000.00"));              // contributions: zero baseline, non-zero scenario
+        LocalDate date = LocalDate.of(2026, 4, 1);
+        Projection placeholder = new Projection(date, date,
+                List.of(state(date, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)));
+        SimulationResult result = new SimulationResult(placeholder, placeholder, comparison);
+
+        ScenarioComparisonView view = SimulationResultFormatter.formatComparison(result);
+
+        assertEquals("0.00%", view.getNetWorthPercentageChange(),
+                "a non-zero baseline with zero difference is a present 0.00%, not \"n/a\"");
+        assertEquals("n/a", view.getInvestmentValuePercentageChange());
+        assertEquals("n/a", view.getLoanBalancePercentageChange());
+        assertEquals("n/a", view.getCashBalancePercentageChange());
+        assertEquals("n/a", view.getInvestmentContributionPercentageChange(),
+                "percentage change is undefined from a zero baseline even though the absolute difference below is not");
+        assertEquals("+5,000.00", view.getInvestmentContributionImpact(),
+                "the absolute difference is still a real, computable figure even when the percentage is undefined");
+    }
 }

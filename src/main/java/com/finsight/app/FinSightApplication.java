@@ -13,11 +13,8 @@ import com.finsight.service.AccountBalance;
 import com.finsight.service.SimulationApplicationService;
 import com.finsight.service.SimulationResult;
 import com.finsight.simulation.model.SimulationParameters;
-import com.finsight.simulation.scenario.ExpenseChangeEvent;
-import com.finsight.simulation.scenario.InvestmentContributionChangeEvent;
-import com.finsight.simulation.scenario.InvestmentReturnChangeEvent;
 import com.finsight.simulation.scenario.Scenario;
-import com.finsight.simulation.scenario.ScenarioEvent;
+import com.finsight.ui.DecisionLabView;
 import com.finsight.ui.FinancialDataFormatter;
 import com.finsight.ui.InvestmentFormatter;
 import com.finsight.ui.InvestmentRowView;
@@ -86,7 +83,8 @@ import java.util.function.Consumer;
  * {@code section-card} CSS class), and introduced {@code /finsight.css}
  * ({@code src/main/resources/finsight.css}) for all colors, spacing, and typography. This was a
  * presentation-only change: every method below that talks to a {@link CompositionRoot} service
- * ({@link #runBaselineSimulation()}, {@link #runExpenseIncreaseScenario(BigDecimal)}) is
+ * ({@link #runBaselineSimulation()}, and — before Milestone 6B replaced it with
+ * {@link DecisionLabView} — the scenario-running methods that stood here at the time) is
  * byte-for-byte the same orchestration Milestones 5E–5H already established, and every existing
  * validation/error path (thrown before any repository write — see
  * {@code FinancialProfileApplicationService}) is preserved exactly, just displayed through
@@ -105,22 +103,20 @@ import java.util.function.Consumer;
  * success, the baseline projection's 12 monthly states are also handed to
  * {@link ProjectionChartView#showBaseline}, which plots them without recomputing anything.
  *
- * <p><b>The scenario run</b> (Milestone 5F) triggered by "Run Scenario" uses the same 12-month,
- * zero-growth {@link SimulationParameters}, but with a {@link Scenario} carrying exactly one
- * {@link ExpenseChangeEvent}, effective immediately, replacing monthly expenses with the amount
- * the user enters — {@code ExpenseChangeEvent} is the only scenario event type usable against the
- * current demo data without changing {@link DemoDataSeeder}: the two investment-targeting event
- * types require an investment id already present in the snapshot, and the seeded demo data has no
- * investments. The text field is pre-filled with a fixed, deterministic default (see
- * {@link #DEFAULT_NEW_MONTHLY_EXPENSES}) so the workflow is repeatable out of the box, but remains
- * editable. On success, both the baseline and scenario projections from this same run are handed
- * to {@link ProjectionChartView#showBaseline}/{@link ProjectionChartView#showScenario} —
- * refreshing the baseline series too (with data that is, by construction of
- * {@code SimulationApplicationService.runScenario}, built from the very same snapshot as the
- * scenario) keeps both chart series drawn from one shared timeline, exactly as Milestone 5G
- * requires. If validation fails (a malformed or negative amount) before the service is even
- * called, neither chart method runs, so the chart is left exactly as it was — never partially
- * updated.
+ * <p><b>Building and running a scenario</b> is the Decision Lab's job (Milestone 6B) — see
+ * {@link DecisionLabView}'s own documentation for the full design. In short: it replaced two
+ * earlier, single-event-only sections ("Scenario Simulator" from Milestone 5F, and an
+ * "Investment Scenario" section from the Investments milestone) with one unified section that
+ * lets the user build up any number of heterogeneous {@code ScenarioEvent}s and run them all
+ * together as one {@link Scenario} — {@code SimulationEngine} and
+ * {@code SimulationApplicationService} already fully supported this; only the UI could not build
+ * such a scenario before. On a successful run, {@link DecisionLabView} reports the
+ * {@code SimulationResult} back to this class via a callback, which refreshes
+ * {@link ProjectionChartView#showBaseline}/{@link ProjectionChartView#showScenario} exactly as the
+ * two sections it replaced already did — refreshing the baseline series too (with data that is, by
+ * construction of {@code SimulationApplicationService.runScenario}, built from the very same
+ * snapshot as the scenario) keeps both chart series drawn from one shared timeline, exactly as
+ * Milestone 5G originally required.
  *
  * <p>Running {@code SimulationEngine}/{@code ScenarioComparisonCalculator} against this codebase's
  * realistic data sizes is a fast, synchronous, in-memory computation (no I/O in the simulation
@@ -177,33 +173,23 @@ import java.util.function.Consumer;
  * workflows — there is deliberately no edit or delete, matching {@code InvestmentRepository}'s own
  * by-design omission of {@code update}. Because {@code SnapshotBuilder} already consumes every
  * persisted investment unconditionally, an investment added here is automatically reflected the
- * very next time "Run Simulation" or either scenario is run — the same "no further wiring needed"
+ * very next time "Run Simulation" or the Decision Lab's "Run Scenario" is run — the same "no
+ * further wiring needed"
  * property every other section of this application already relies on.
  *
- * <p><b>The Investment Scenario section (Decision Lab, Investments milestone)</b> is a second,
- * independent scenario action alongside the expense scenario above — not a replacement or a
- * generalization of it. It lets the user pick a persisted investment from a
- * {@code ComboBox<Investment>} (labeled by name and asset type, never by database id — see
- * {@link InvestmentFormatter#formatInvestmentOptionLabel}) and change either its monthly
- * contribution or its expected annual return, building exactly one
- * {@code InvestmentContributionChangeEvent} or {@code InvestmentReturnChangeEvent} — both of which,
- * and the {@code SimulationEngine} logic that applies them, already existed and are already fully
- * tested before this milestone; nothing about either is modified here. The controls are disabled,
- * with an explanatory label shown instead, whenever no investments are persisted yet — a
- * presentation-only check against the same {@code ObservableList} {@code buildInvestmentsSection}
- * populates, not a new validation rule.
+ * <p><b>Milestone 6A ("Expose the full Scenario Comparison")</b> widened the comparison display
+ * from showing only net worth to showing all five metric categories {@code ScenarioComparison}
+ * already computed (net worth, investment value, loan balance, cash balance, total investment
+ * contributions), each as its own baseline/scenario pair plus one "impact" card combining the
+ * absolute difference and the percentage change. That widened {@link ScenarioComparisonView}/
+ * {@link SimulationResultFormatter#formatComparison} is exactly what {@link DecisionLabView} now
+ * reads to build its own single copy of that same 15-card layout (Milestone 6A's two duplicate
+ * copies — one per old scenario section — collapsed into one, in {@link DecisionLabView} itself,
+ * when Milestone 6B replaced those two sections).
  */
 public class FinSightApplication extends Application {
 
     private static final int PROJECTION_MONTHS = 12;
-
-    /**
-     * The scenario input field's pre-filled default: a fixed, deterministic new monthly expense
-     * figure, chosen to be meaningfully higher than the demo profile's seeded 40,000.00 (see
-     * {@link DemoDataSeeder}) so the baseline-vs-scenario comparison is obviously different by
-     * default, without this class reading the seeded profile itself to compute a delta.
-     */
-    private static final String DEFAULT_NEW_MONTHLY_EXPENSES = "50000.00";
 
     private CompositionRoot compositionRoot;
 
@@ -319,248 +305,32 @@ public class FinSightApplication extends Application {
                 projectionPeriodCaption, metricsRow, chartContainer);
         projectionSection.getStyleClass().add("section-card");
 
-        // ---------- Scenario Simulator section ----------
-
-        Label scenarioSectionLabel = new Label("Scenario Simulator");
-        scenarioSectionLabel.getStyleClass().add("section-heading");
-
-        Label scenarioDescription = new Label("What happens if your monthly expenses change?");
-        scenarioDescription.getStyleClass().add("section-description");
-
-        Label newExpensesFieldLabel = new Label("New monthly expenses (₹)");
-        newExpensesFieldLabel.getStyleClass().add("field-label");
-        TextField newMonthlyExpensesField = new TextField(DEFAULT_NEW_MONTHLY_EXPENSES);
-        newMonthlyExpensesField.getStyleClass().add("finsight-text-field");
-        newMonthlyExpensesField.setPrefColumnCount(12);
-        VBox newExpensesFieldBox = new VBox(4, newExpensesFieldLabel, newMonthlyExpensesField);
-
-        Button runScenarioButton = new Button("Run Scenario");
-        runScenarioButton.getStyleClass().add("primary-button");
-
-        HBox scenarioInputRow = new HBox(16, newExpensesFieldBox, runScenarioButton);
-        scenarioInputRow.setAlignment(Pos.BOTTOM_LEFT);
-
-        Label scenarioStatusLabel = new Label(
-                "Enter a new monthly expense amount and click \"Run Scenario\" to compare it against the baseline.");
-        scenarioStatusLabel.getStyleClass().add("section-description");
-        scenarioStatusLabel.setWrapText(true);
-
-        Label baselineFinalNetWorthValue = new Label();
-        Label scenarioFinalNetWorthValue = new Label();
-        Label netWorthImpactValue = new Label();
-
-        FlowPane comparisonRow = new FlowPane(16, 16,
-                metricCard("Baseline — net worth after month " + PROJECTION_MONTHS, baselineFinalNetWorthValue),
-                metricCard("Scenario — net worth after month " + PROJECTION_MONTHS, scenarioFinalNetWorthValue),
-                metricCard("Net worth impact", netWorthImpactValue));
-        comparisonRow.setVisible(false);
-        comparisonRow.setManaged(false);
-
-        runScenarioButton.setOnAction(event -> {
-            try {
-                BigDecimal newMonthlyExpenses = new BigDecimal(newMonthlyExpensesField.getText().trim());
-                if (newMonthlyExpenses.signum() < 0) {
-                    throw new IllegalArgumentException("New monthly expenses must not be negative.");
-                }
-
-                SimulationResult result = runExpenseIncreaseScenario(newMonthlyExpenses);
-                ScenarioComparisonView view = SimulationResultFormatter.formatComparison(result);
-
-                baselineFinalNetWorthValue.setText(view.getBaselineNetWorthAfterFinalMonth());
-                scenarioFinalNetWorthValue.setText(view.getScenarioNetWorthAfterFinalMonth());
-                netWorthImpactValue.setText(view.getNetWorthImpact());
-                applySemanticValueStyle(netWorthImpactValue, view.getNetWorthImpact());
-
-                showStatus(scenarioStatusLabel, "Comparing the baseline against monthly expenses of "
-                        + newMonthlyExpensesField.getText().trim() + " from today onward.", true);
-                setVisibleAndManaged(comparisonRow, true);
-
-                // Refresh both series from this one result so baseline and scenario always share
-                // the same underlying snapshot/timeline, per Milestone 5G's requirement — this is
-                // not a second calculation, just re-plotting the same runScenario() output that
-                // formatComparison() above already used.
-                projectionChartView.showBaseline(result.getBaselineProjection());
-                projectionChartView.showScenario(result.getScenarioProjection());
-                setVisibleAndManaged(projectionPeriodCaption, true);
-                setVisibleAndManaged(metricsRow, true);
-                setVisibleAndManaged(projectionChartView, true);
-            } catch (RuntimeException e) {
-                // Deliberately does not touch projectionChartView here: whatever it was showing
-                // before this failed attempt (baseline only, or baseline + a prior scenario)
-                // remains exactly as it was, rather than being cleared or partially updated.
-                setVisibleAndManaged(comparisonRow, false);
-                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                showStatus(scenarioStatusLabel, "Could not run the scenario: " + reason, false);
-            }
-        });
-
-        VBox scenarioSection = new VBox(16,
-                scenarioSectionLabel, scenarioDescription, scenarioInputRow, scenarioStatusLabel, comparisonRow);
-        scenarioSection.getStyleClass().add("section-card");
-
-        // ---------- Investment Scenario section (Decision Lab, investment-event integration) ----------
+        // ---------- Decision Lab section (Milestone 6B: unified multi-event scenario builder) ----------
         //
-        // A separate action from the expense scenario above, not a replacement or a generalized
-        // multi-event builder (per this milestone's explicit design decision) — the expense
-        // scenario's code path above is untouched. Reads investmentsList (populated by
-        // buildInvestmentsSection() above) to drive a ComboBox<Investment> and to gate the
-        // controls' enabled state, satisfying "never ask the user to type an investment id" and
-        // "disable the controls when there are zero investments."
+        // Replaces the old separate "Scenario Simulator" (expense-only) and "Investment Scenario"
+        // sections above with one DecisionLabView — see that class's own documentation for why it
+        // was extracted rather than becoming another buildXxxSection method here, and for exactly
+        // how it builds and runs a multi-event Scenario through the same, unmodified
+        // SimulationApplicationService every other section already uses. onDecisionLabScenarioRun
+        // below is exactly the chart/caption/metrics-row refresh the two old sections each used to
+        // perform inline after a successful run — those nodes belong to the Financial Projection
+        // section above, not to the Decision Lab, so DecisionLabView reports its result back
+        // through this callback rather than reaching into another section's nodes itself.
 
-        Label investmentScenarioSectionLabel = new Label("Investment Scenario");
-        investmentScenarioSectionLabel.getStyleClass().add("section-heading");
-
-        Label investmentScenarioDescription = new Label(
-                "What happens if a specific investment's monthly contribution or expected annual return changes?");
-        investmentScenarioDescription.getStyleClass().add("section-description");
-        investmentScenarioDescription.setWrapText(true);
-
-        Label noInvestmentsLabel = new Label("Add an investment above to enable investment-targeting scenarios.");
-        noInvestmentsLabel.getStyleClass().add("section-description");
-        noInvestmentsLabel.setWrapText(true);
-
-        Label investmentFieldLabel = new Label("Investment");
-        investmentFieldLabel.getStyleClass().add("field-label");
-        ComboBox<Investment> investmentScenarioComboBox = new ComboBox<>(investmentsList);
-        investmentScenarioComboBox.getStyleClass().add("finsight-text-field");
-        investmentScenarioComboBox.setConverter(new StringConverter<>() {
-            @Override
-            public String toString(Investment investment) {
-                // "Name (Asset Type)" — never the database id (see InvestmentFormatter's own
-                // documentation on this method).
-                return investment == null ? "" : InvestmentFormatter.formatInvestmentOptionLabel(investment);
-            }
-
-            @Override
-            public Investment fromString(String string) {
-                return null; // this ComboBox is not editable; a reverse conversion is never used
-            }
-        });
-        VBox investmentFieldBox = new VBox(4, investmentFieldLabel, investmentScenarioComboBox);
-
-        Label scenarioTypeFieldLabel = new Label("Scenario type");
-        scenarioTypeFieldLabel.getStyleClass().add("field-label");
-        ComboBox<String> investmentScenarioTypeComboBox = new ComboBox<>(FXCollections.observableArrayList(
-                "Change monthly contribution", "Change expected annual return"));
-        investmentScenarioTypeComboBox.getStyleClass().add("finsight-text-field");
-        investmentScenarioTypeComboBox.getSelectionModel().selectFirst();
-        VBox scenarioTypeFieldBox = new VBox(4, scenarioTypeFieldLabel, investmentScenarioTypeComboBox);
-
-        Label investmentValueFieldLabel = new Label("New value");
-        investmentValueFieldLabel.getStyleClass().add("field-label");
-        TextField investmentScenarioValueField = new TextField();
-        investmentScenarioValueField.getStyleClass().add("finsight-text-field");
-        investmentScenarioValueField.setPrefColumnCount(10);
-        VBox investmentValueFieldBox = new VBox(4, investmentValueFieldLabel, investmentScenarioValueField);
-
-        Label investmentDateFieldLabel = new Label("Effective date");
-        investmentDateFieldLabel.getStyleClass().add("field-label");
-        TextField investmentScenarioDateField = new TextField(LocalDate.now().toString());
-        investmentScenarioDateField.getStyleClass().add("finsight-text-field");
-        investmentScenarioDateField.setPrefColumnCount(10);
-        VBox investmentDateFieldBox = new VBox(4, investmentDateFieldLabel, investmentScenarioDateField);
-
-        Button runInvestmentScenarioButton = new Button("Run Investment Scenario");
-        runInvestmentScenarioButton.getStyleClass().add("primary-button");
-
-        HBox investmentScenarioInputRowTop = new HBox(16, investmentFieldBox, scenarioTypeFieldBox);
-        HBox investmentScenarioInputRowBottom = new HBox(
-                16, investmentValueFieldBox, investmentDateFieldBox, runInvestmentScenarioButton);
-        investmentScenarioInputRowBottom.setAlignment(Pos.BOTTOM_LEFT);
-        VBox investmentScenarioInputRows = new VBox(12, investmentScenarioInputRowTop, investmentScenarioInputRowBottom);
-
-        Label investmentScenarioStatusLabel = new Label("Select an investment, choose what to change, and click "
-                + "\"Run Investment Scenario\" to compare it against the baseline.");
-        investmentScenarioStatusLabel.getStyleClass().add("section-description");
-        investmentScenarioStatusLabel.setWrapText(true);
-
-        Label investmentScenarioBaselineNetWorthValue = new Label();
-        Label investmentScenarioResultNetWorthValue = new Label();
-        Label investmentScenarioNetWorthImpactValue = new Label();
-
-        FlowPane investmentComparisonRow = new FlowPane(16, 16,
-                metricCard("Baseline — net worth after month " + PROJECTION_MONTHS, investmentScenarioBaselineNetWorthValue),
-                metricCard("Scenario — net worth after month " + PROJECTION_MONTHS, investmentScenarioResultNetWorthValue),
-                metricCard("Net worth impact", investmentScenarioNetWorthImpactValue));
-        investmentComparisonRow.setVisible(false);
-        investmentComparisonRow.setManaged(false);
-
-        // Presentation-only gate: whenever investmentsList is empty, the input controls are
-        // disabled and noInvestmentsLabel is shown in their place instead — no new validation rule
-        // is introduced anywhere (InvestmentApplicationService and SimulationEngine remain the sole
-        // source of any real validation). Re-evaluated every time investmentsList changes, so
-        // adding the first investment above enables these controls immediately, with no restart.
-        Runnable updateInvestmentScenarioAvailability = () -> {
-            boolean hasInvestments = !investmentsList.isEmpty();
-            investmentScenarioComboBox.setDisable(!hasInvestments);
-            investmentScenarioTypeComboBox.setDisable(!hasInvestments);
-            investmentScenarioValueField.setDisable(!hasInvestments);
-            investmentScenarioDateField.setDisable(!hasInvestments);
-            runInvestmentScenarioButton.setDisable(!hasInvestments);
-            setVisibleAndManaged(noInvestmentsLabel, !hasInvestments);
-            setVisibleAndManaged(investmentScenarioInputRows, hasInvestments);
+        Consumer<SimulationResult> onDecisionLabScenarioRun = result -> {
+            projectionChartView.showBaseline(result.getBaselineProjection());
+            projectionChartView.showScenario(result.getScenarioProjection());
+            setVisibleAndManaged(projectionPeriodCaption, true);
+            setVisibleAndManaged(metricsRow, true);
+            setVisibleAndManaged(projectionChartView, true);
         };
-        investmentsList.addListener(
-                (javafx.collections.ListChangeListener<Investment>) change -> updateInvestmentScenarioAvailability.run());
-        updateInvestmentScenarioAvailability.run();
-
-        runInvestmentScenarioButton.setOnAction(event -> {
-            Investment selectedInvestment = investmentScenarioComboBox.getValue();
-            String scenarioType = investmentScenarioTypeComboBox.getValue();
-            if (selectedInvestment == null || scenarioType == null) {
-                showStatus(investmentScenarioStatusLabel, "Please select an investment and a scenario type.", false);
-                return;
-            }
-            try {
-                BigDecimal newValue = new BigDecimal(investmentScenarioValueField.getText().trim());
-                if (newValue.signum() < 0) {
-                    throw new IllegalArgumentException("The new value must not be negative.");
-                }
-                LocalDate effectiveDate = LocalDate.parse(investmentScenarioDateField.getText().trim());
-
-                // The investment id is read off the selected Investment object itself — never
-                // typed or displayed as raw text — satisfying "never display the database ID as
-                // the primary label."
-                ScenarioEvent investmentEvent = scenarioType.equals("Change monthly contribution")
-                        ? new InvestmentContributionChangeEvent(effectiveDate, selectedInvestment.getId(), newValue)
-                        : new InvestmentReturnChangeEvent(effectiveDate, selectedInvestment.getId(), newValue);
-
-                SimulationResult result = runInvestmentScenario(investmentEvent);
-                ScenarioComparisonView view = SimulationResultFormatter.formatComparison(result);
-
-                investmentScenarioBaselineNetWorthValue.setText(view.getBaselineNetWorthAfterFinalMonth());
-                investmentScenarioResultNetWorthValue.setText(view.getScenarioNetWorthAfterFinalMonth());
-                investmentScenarioNetWorthImpactValue.setText(view.getNetWorthImpact());
-                applySemanticValueStyle(investmentScenarioNetWorthImpactValue, view.getNetWorthImpact());
-
-                showStatus(investmentScenarioStatusLabel,
-                        "Comparing the baseline against the selected investment scenario.", true);
-                setVisibleAndManaged(investmentComparisonRow, true);
-
-                // Refreshes both chart series from this one result, exactly like the expense
-                // scenario above — not a second calculation, just re-plotting this runScenario()
-                // call's own output.
-                projectionChartView.showBaseline(result.getBaselineProjection());
-                projectionChartView.showScenario(result.getScenarioProjection());
-                setVisibleAndManaged(projectionPeriodCaption, true);
-                setVisibleAndManaged(metricsRow, true);
-                setVisibleAndManaged(projectionChartView, true);
-            } catch (RuntimeException e) {
-                setVisibleAndManaged(investmentComparisonRow, false);
-                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                showStatus(investmentScenarioStatusLabel, "Could not run the investment scenario: " + reason, false);
-            }
-        });
-
-        VBox investmentScenarioSection = new VBox(16,
-                investmentScenarioSectionLabel, investmentScenarioDescription, noInvestmentsLabel,
-                investmentScenarioInputRows, investmentScenarioStatusLabel, investmentComparisonRow);
-        investmentScenarioSection.getStyleClass().add("section-card");
+        DecisionLabView decisionLabView = new DecisionLabView(
+                compositionRoot.getSimulationApplicationService(), investmentsList, onDecisionLabScenarioRun);
 
         // ---------- Assemble the page ----------
 
         VBox content = new VBox(24, profileSection, financialDataSection, investmentsSection,
-                projectionSection, scenarioSection, investmentScenarioSection);
+                projectionSection, decisionLabView);
         content.setMaxWidth(880);
         content.setPadding(new Insets(28, 32, 40, 32));
 
@@ -1230,55 +1000,6 @@ public class FinSightApplication extends Application {
                 asOfDate, List.of());
 
         return simulationApplicationService.runScenario(asOfDate, parameters, baselineOnlyScenario);
-    }
-
-    /**
-     * Runs the same fixed 12-month, zero-growth parameters as {@link #runBaselineSimulation()},
-     * but with a real, one-event {@link Scenario}: a single {@link ExpenseChangeEvent}, effective
-     * immediately, replacing monthly expenses with {@code newMonthlyExpenses} for the whole
-     * projection. {@link SimulationApplicationService#runScenario} itself computes both the
-     * baseline and scenario projections and their {@code ScenarioComparison} from this one call —
-     * this method performs no comparison or chart arithmetic itself, only returns the result for
-     * the caller to format and plot.
-     */
-    private SimulationResult runExpenseIncreaseScenario(BigDecimal newMonthlyExpenses) {
-        SimulationApplicationService simulationApplicationService = compositionRoot.getSimulationApplicationService();
-
-        LocalDate asOfDate = LocalDate.now();
-        SimulationParameters parameters =
-                new SimulationParameters(PROJECTION_MONTHS, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ONE);
-        Scenario expenseIncreaseScenario = new Scenario(
-                0L, "Increased monthly expenses",
-                "Monthly expenses change to a new fixed amount, effective immediately.",
-                asOfDate, List.of(new ExpenseChangeEvent(asOfDate, newMonthlyExpenses)));
-
-        return simulationApplicationService.runScenario(asOfDate, parameters, expenseIncreaseScenario);
-    }
-
-    /**
-     * Runs the same fixed 12-month, zero-growth parameters as {@link #runBaselineSimulation()} and
-     * {@link #runExpenseIncreaseScenario(BigDecimal)}, but with a real, one-event {@link Scenario}
-     * carrying exactly one investment-targeting {@link ScenarioEvent} — either an
-     * {@link InvestmentContributionChangeEvent} or an {@link InvestmentReturnChangeEvent},
-     * constructed by the caller from the user's selected investment and scenario type. Neither
-     * {@code SimulationEngine} nor either {@code ScenarioEvent} subclass is modified for this: both
-     * event types, and the engine's handling of them, already existed and are already fully tested
-     * (see {@code ScenarioApplicationTest}) — this method only wires an already-tested event into
-     * the same already-tested {@link SimulationApplicationService#runScenario} call the other two
-     * scenario methods in this class already use.
-     */
-    private SimulationResult runInvestmentScenario(ScenarioEvent investmentEvent) {
-        SimulationApplicationService simulationApplicationService = compositionRoot.getSimulationApplicationService();
-
-        LocalDate asOfDate = LocalDate.now();
-        SimulationParameters parameters =
-                new SimulationParameters(PROJECTION_MONTHS, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ONE);
-        Scenario investmentScenario = new Scenario(
-                0L, "Investment scenario",
-                "A single investment-targeting event (contribution or return-rate change), effective as specified.",
-                asOfDate, List.of(investmentEvent));
-
-        return simulationApplicationService.runScenario(asOfDate, parameters, investmentScenario);
     }
 
     @Override
