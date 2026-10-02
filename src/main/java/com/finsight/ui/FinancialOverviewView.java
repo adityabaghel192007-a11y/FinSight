@@ -53,6 +53,15 @@ import java.util.Objects;
  * does not propagate the exception and abort the whole application's launch: it shows a single
  * status message instead, matching the "catch, report, keep going" pattern every other section of
  * {@code FinSightApplication} already uses for its own button handlers.
+ *
+ * <p><b>Primary-section styling (Milestone 7B).</b> This is the first thing a user sees on launch,
+ * so it carries the {@code section-card-primary}/{@code section-heading-primary} CSS modifiers in
+ * addition to (not instead of) the ordinary {@code section-card}/{@code section-heading} every
+ * other section already uses — a slightly larger heading and an accent top border in the same
+ * blue already used for {@code .primary-button}, nothing else. No new color, radius, padding, or
+ * shadow is introduced; see {@code finsight.css}'s own comment on these two modifier classes. The
+ * one-line description beneath the heading mirrors the heading+description pattern
+ * {@code DecisionLabView} already established, rather than inventing a new convention.
  */
 public final class FinancialOverviewView extends VBox {
 
@@ -62,14 +71,18 @@ public final class FinancialOverviewView extends VBox {
         Objects.requireNonNull(financialOverviewApplicationService, "financialOverviewApplicationService must not be null");
         Objects.requireNonNull(usdToInrRate, "usdToInrRate must not be null");
 
-        getStyleClass().add("section-card");
+        getStyleClass().addAll("section-card", "section-card-primary");
         buildUi(financialOverviewApplicationService, usdToInrRate);
     }
 
     private void buildUi(FinancialOverviewApplicationService financialOverviewApplicationService, BigDecimal usdToInrRate) {
         Label heading = new Label("Financial Overview");
-        heading.getStyleClass().add("section-heading");
-        getChildren().add(heading);
+        heading.getStyleClass().addAll("section-heading", "section-heading-primary");
+
+        Label description = new Label("Your current financial position, at a glance.");
+        description.getStyleClass().add("section-description");
+
+        getChildren().addAll(heading, description);
 
         try {
             FinancialOverviewData overview = financialOverviewApplicationService.getOverview(usdToInrRate);

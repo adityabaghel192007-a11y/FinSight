@@ -196,6 +196,14 @@ import java.util.function.Consumer;
  * {@link CompositionRoot#getFinancialOverviewApplicationService()} and the same fixed
  * {@code usdToInrRate} used elsewhere in this class; see that view's own documentation for why it
  * computes its figures once, at construction, rather than exposing a refresh method.
+ *
+ * <p><b>Milestone 7B (essential UI polish):</b> presentation-only. The Investments table's 11
+ * columns previously had no explicit width at all, so {@code CONSTRAINED_RESIZE_POLICY} forced
+ * every one of them to an equal, content-blind share of the table's width — visibly truncating
+ * headers like "Avg. Purchase Price". Each column in {@link #buildInvestmentsSection} now carries
+ * an explicit {@code setMinWidth}/{@code setPrefWidth} sized to its own header/content, so the
+ * same resize policy distributes width proportionally instead of uniformly. No column, cell
+ * value, or table behavior changed.
  */
 public class FinSightApplication extends Application {
 
@@ -723,26 +731,55 @@ public class FinSightApplication extends Application {
         TableView<InvestmentRowView> investmentsTable = new TableView<>();
         TableColumn<InvestmentRowView, String> nameColumn = new TableColumn<>("Name");
         nameColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getName()));
+        nameColumn.setMinWidth(80);
+        nameColumn.setPrefWidth(110);
         TableColumn<InvestmentRowView, String> tickerColumn = new TableColumn<>("Ticker");
         tickerColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getTicker()));
+        tickerColumn.setMinWidth(50);
+        tickerColumn.setPrefWidth(70);
         TableColumn<InvestmentRowView, String> assetTypeColumn = new TableColumn<>("Asset Type");
         assetTypeColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAssetType()));
+        assetTypeColumn.setMinWidth(85);
+        assetTypeColumn.setPrefWidth(110);
         TableColumn<InvestmentRowView, String> currencyColumn = new TableColumn<>("Currency");
         currencyColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCurrency()));
+        currencyColumn.setMinWidth(60);
+        currencyColumn.setPrefWidth(75);
         TableColumn<InvestmentRowView, String> quantityColumn = new TableColumn<>("Quantity");
         quantityColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getQuantity()));
+        quantityColumn.setMinWidth(60);
+        quantityColumn.setPrefWidth(80);
+        // The next four columns carry this table's longest headers and values (currency-formatted
+        // amounts) — every truncation/ellipsis complaint this milestone's review surfaced traced
+        // back to these columns having no minimum or preferred width at all, so under
+        // CONSTRAINED_RESIZE_POLICY every column (including these) was forced to an equal,
+        // content-blind share of the table's width. Giving each an explicit, content-sized
+        // min/pref width (below) is the whole fix: the policy still scales every column to fill the
+        // table, but now proportionally to these sizes rather than uniformly.
         TableColumn<InvestmentRowView, String> avgPriceColumn = new TableColumn<>("Avg. Purchase Price");
         avgPriceColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAveragePurchasePrice()));
+        avgPriceColumn.setMinWidth(95);
+        avgPriceColumn.setPrefWidth(125);
         TableColumn<InvestmentRowView, String> currentPriceColumn = new TableColumn<>("Current Price");
         currentPriceColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCurrentPrice()));
+        currentPriceColumn.setMinWidth(85);
+        currentPriceColumn.setPrefWidth(105);
         TableColumn<InvestmentRowView, String> investedValueColumn = new TableColumn<>("Invested Value");
         investedValueColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getInvestedValue()));
+        investedValueColumn.setMinWidth(85);
+        investedValueColumn.setPrefWidth(105);
         TableColumn<InvestmentRowView, String> currentValueColumn = new TableColumn<>("Current Value");
         currentValueColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getCurrentValue()));
+        currentValueColumn.setMinWidth(85);
+        currentValueColumn.setPrefWidth(105);
         TableColumn<InvestmentRowView, String> gainLossColumn = new TableColumn<>("Gain/Loss");
         gainLossColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getGainLoss()));
+        gainLossColumn.setMinWidth(70);
+        gainLossColumn.setPrefWidth(90);
         TableColumn<InvestmentRowView, String> accountColumn = new TableColumn<>("Account");
         accountColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAccountName()));
+        accountColumn.setMinWidth(85);
+        accountColumn.setPrefWidth(110);
         investmentsTable.getColumns().setAll(List.of(
                 nameColumn, tickerColumn, assetTypeColumn, currencyColumn, quantityColumn,
                 avgPriceColumn, currentPriceColumn, investedValueColumn, currentValueColumn,

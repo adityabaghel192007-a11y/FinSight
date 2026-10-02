@@ -64,6 +64,23 @@
     -fx-text-fill: #6B7688;
 }
 
+/*
+ * Milestone 7B: a "primary" modifier for the one section that should visually lead the page
+ * (Financial Overview). Applied together with .section-card / .section-heading on the same
+ * node — this only overrides the border and heading size, reusing every other color, radius,
+ * padding, and shadow already defined above rather than introducing a second visual language.
+ * Declared after .section-card/.section-heading so its border-color/border-width and font-size
+ * win on the shared properties.
+ */
+.section-card-primary {
+    -fx-border-color: #3A5AE8 #E2E6EC #E2E6EC #E2E6EC;
+    -fx-border-width: 3 1 1 1;
+}
+
+.section-heading-primary {
+    -fx-font-size: 20px;
+}
+
 /* ---------- Form controls ---------- */
 
 .field-label {
