@@ -17,6 +17,7 @@ import com.finsight.repository.jdbc.SchemaInitializer;
 import com.finsight.repository.jdbc.SqliteConnectionProvider;
 import com.finsight.repository.jdbc.TransactionRepositoryJdbc;
 import com.finsight.service.FinancialDataApplicationService;
+import com.finsight.service.FinancialOverviewApplicationService;
 import com.finsight.service.FinancialProfileApplicationService;
 import com.finsight.service.InvestmentApplicationService;
 import com.finsight.service.SimulationApplicationService;
@@ -85,6 +86,15 @@ import java.util.Objects;
  * read through {@link SnapshotBuilder} always see the same underlying table, never two divergent
  * copies of the data.
  *
+ * <p><b>Financial Overview (Milestone 7A):</b> {@link FinancialOverviewApplicationService} is
+ * built from the same {@code financialProfileRepository}/{@code accountRepository}/
+ * {@code transactionRepository}/{@code investmentRepository}/{@code loanRepository} instances
+ * already constructed above for {@link SnapshotBuilder} — no repository is constructed twice for
+ * it. {@code loanRepository} in particular was, before this milestone, a local variable used only
+ * to build {@link SnapshotBuilder} and never otherwise exposed; it is now also passed to this one
+ * additional service the same way every other repository already is, and this class still exposes
+ * no repository of its own directly to any caller.
+ *
  * <p>This class performs no business logic of its own — only construction and lifecycle. It holds
  * no static state and is not a singleton: there is no {@code getInstance()} or other global
  * accessor. {@link FinSightApplication} owns exactly one instance of it explicitly, constructing
@@ -101,6 +111,7 @@ public final class CompositionRoot implements AutoCloseable {
     private final FinancialProfileApplicationService financialProfileApplicationService;
     private final FinancialDataApplicationService financialDataApplicationService;
     private final InvestmentApplicationService investmentApplicationService;
+    private final FinancialOverviewApplicationService financialOverviewApplicationService;
 
     /**
      * Opens a connection to {@code jdbcUrl}, initializes the database schema on it, and
@@ -145,6 +156,10 @@ public final class CompositionRoot implements AutoCloseable {
 
         this.investmentApplicationService =
                 new InvestmentApplicationService(investmentRepository, accountRepository);
+
+        this.financialOverviewApplicationService = new FinancialOverviewApplicationService(
+                financialProfileRepository, accountRepository, transactionRepository,
+                investmentRepository, loanRepository);
     }
 
     /**
@@ -198,6 +213,18 @@ public final class CompositionRoot implements AutoCloseable {
      */
     public InvestmentApplicationService getInvestmentApplicationService() {
         return investmentApplicationService;
+    }
+
+    /**
+     * The application service for reading a concise Financial Overview — monthly income,
+     * expenses, and savings, plus consolidated cash, investments, loans, and net worth (Milestone
+     * 7A). Backed by the same {@link FinancialProfileRepository}/{@link AccountRepository}/
+     * {@link TransactionRepository}/{@link InvestmentRepository}/{@link LoanRepository} instances
+     * {@link SnapshotBuilder} already uses, so a read through this service always sees the same
+     * data every other service and section already reads from or writes to.
+     */
+    public FinancialOverviewApplicationService getFinancialOverviewApplicationService() {
+        return financialOverviewApplicationService;
     }
 
     /**

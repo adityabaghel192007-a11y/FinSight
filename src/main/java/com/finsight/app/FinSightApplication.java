@@ -16,6 +16,7 @@ import com.finsight.simulation.model.SimulationParameters;
 import com.finsight.simulation.scenario.Scenario;
 import com.finsight.ui.DecisionLabView;
 import com.finsight.ui.FinancialDataFormatter;
+import com.finsight.ui.FinancialOverviewView;
 import com.finsight.ui.InvestmentFormatter;
 import com.finsight.ui.InvestmentRowView;
 import com.finsight.ui.ProjectionChartView;
@@ -186,6 +187,15 @@ import java.util.function.Consumer;
  * reads to build its own single copy of that same 15-card layout (Milestone 6A's two duplicate
  * copies — one per old scenario section — collapsed into one, in {@link DecisionLabView} itself,
  * when Milestone 6B replaced those two sections).
+ *
+ * <p><b>Financial Overview (Milestone 7A):</b> a compact, read-only {@link FinancialOverviewView}
+ * is placed at the very top of {@code content}, immediately below the header and before the
+ * Financial Profile section, so a user sees their current financial position — monthly income,
+ * expenses, and savings, plus consolidated cash, investments, loans, and net worth — as soon as
+ * FinSight opens. It is built once here from
+ * {@link CompositionRoot#getFinancialOverviewApplicationService()} and the same fixed
+ * {@code usdToInrRate} used elsewhere in this class; see that view's own documentation for why it
+ * computes its figures once, at construction, rather than exposing a refresh method.
  */
 public class FinSightApplication extends Application {
 
@@ -201,6 +211,13 @@ public class FinSightApplication extends Application {
     @Override
     public void start(Stage primaryStage) {
         VBox header = buildHeader();
+
+        // The same fixed, no-live-lookup USD/INR rate every other section of this application
+        // already uses (see runBaselineSimulation()'s identical SimulationParameters construction
+        // below) — Milestone 7A introduces no new FX source.
+        FinancialOverviewView financialOverviewView = new FinancialOverviewView(
+                compositionRoot.getFinancialOverviewApplicationService(), BigDecimal.ONE);
+
         VBox profileSection = buildProfileSection();
         VBox financialDataSection = buildFinancialDataSection();
 
@@ -329,8 +346,8 @@ public class FinSightApplication extends Application {
 
         // ---------- Assemble the page ----------
 
-        VBox content = new VBox(24, profileSection, financialDataSection, investmentsSection,
-                projectionSection, decisionLabView);
+        VBox content = new VBox(24, financialOverviewView, profileSection, financialDataSection,
+                investmentsSection, projectionSection, decisionLabView);
         content.setMaxWidth(880);
         content.setPadding(new Insets(28, 32, 40, 32));
 
